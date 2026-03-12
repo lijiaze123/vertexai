@@ -191,15 +191,15 @@
                 <h2>API 端点</h2>
                 <div class="form-group">
                     <label>Gemini 格式</label>
-                    <input type="text" value="https://vertex.claudexai.com/v1beta/models/{model}:generateContent" readonly style="background: #f5f5f5;">
+                    <input type="text" id="endpointGemini" readonly style="background: #f5f5f5;">
                 </div>
                 <div class="form-group">
                     <label>OpenAI 格式</label>
-                    <input type="text" value="https://vertex.claudexai.com/v1/chat/completions" readonly style="background: #f5f5f5;">
+                    <input type="text" id="endpointOpenai" readonly style="background: #f5f5f5;">
                 </div>
                 <div class="form-group">
                     <label>简化格式（兼容旧版）</label>
-                    <input type="text" value="https://vertex.claudexai.com/generate" readonly style="background: #f5f5f5;">
+                    <input type="text" id="endpointGenerate" readonly style="background: #f5f5f5;">
                 </div>
             </div>
 
@@ -226,26 +226,7 @@
                 <div class="log-container" id="pythonExample" style="max-height: 200px;"></div>
 
                 <h3 style="margin: 20px 0 10px 0;">图片上传示例 (Python)</h3>
-                <div class="log-container" style="max-height: 200px;"><button class="copy-btn" onclick="copyCode(this)">复制</button>import requests
-import base64
-
-# 读取图片并转换为base64
-with open("image.png", "rb") as f:
-    image_base64 = base64.b64encode(f.read()).decode()
-
-# Gemini格式
-response = requests.post(
-    "https://vertex.claudexai.com/v1beta/models/gemini-3-pro-image-preview:generateContent",
-    headers={"Authorization": "Bearer YOUR_API_KEY"},
-    json={
-        "contents": [{
-            "parts": [
-                {"text": "根据这张图片生成一个变体"},
-                {"inlineData": {"mimeType": "image/png", "data": image_base64}}
-            ]
-        }]
-    }
-)</div>
+                <div class="log-container" id="uploadExample" style="max-height: 200px;"></div>
             </div>
 
             <div class="section">
@@ -537,8 +518,9 @@ response = requests.post(
         function updateExamples() {
             const model = document.getElementById('exampleModel').value;
             const apiKey = document.getElementById('exampleApiKey').value;
+            const baseUrl = window.location.origin;
 
-            const geminiCode = `curl -X POST https://vertex.claudexai.com/v1beta/models/${model}:generateContent \\
+            const geminiCode = `curl -X POST ${baseUrl}/v1beta/models/${model}:generateContent \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${apiKey}" \\
   -d '{
@@ -549,7 +531,7 @@ response = requests.post(
     }
   }'`;
 
-            const openaiCode = `curl -X POST https://vertex.claudexai.com/v1/chat/completions \\
+            const openaiCode = `curl -X POST ${baseUrl}/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${apiKey}" \\
   -d '{
@@ -560,7 +542,7 @@ response = requests.post(
             const pythonCode = `import requests
 
 response = requests.post(
-    "https://vertex.claudexai.com/v1beta/models/${model}:generateContent",
+    "${baseUrl}/v1beta/models/${model}:generateContent",
     headers={"Authorization": "Bearer ${apiKey}"},
     json={
         "contents": [{"parts": [{"text": "一只可爱的猫咪"}]}],
@@ -570,9 +552,31 @@ response = requests.post(
 data = response.json()
 print(data)`;
 
+            const uploadCode = `import requests
+import base64
+
+# 读取图片并转换为base64
+with open("image.png", "rb") as f:
+    image_base64 = base64.b64encode(f.read()).decode()
+
+# Gemini格式
+response = requests.post(
+    "${baseUrl}/v1beta/models/gemini-3-pro-image-preview:generateContent",
+    headers={"Authorization": "Bearer YOUR_API_KEY"},
+    json={
+        "contents": [{
+            "parts": [
+                {"text": "根据这张图片生成一个变体"},
+                {"inlineData": {"mimeType": "image/png", "data": image_base64}}
+            ]
+        }]
+    }
+)`;
+
             document.getElementById('geminiExample').innerHTML = `<button class="copy-btn" onclick="copyCode(this)">复制</button>${geminiCode}`;
             document.getElementById('openaiExample').innerHTML = `<button class="copy-btn" onclick="copyCode(this)">复制</button>${openaiCode}`;
             document.getElementById('pythonExample').innerHTML = `<button class="copy-btn" onclick="copyCode(this)">复制</button>${pythonCode}`;
+            document.getElementById('uploadExample').innerHTML = `<button class="copy-btn" onclick="copyCode(this)">复制</button>${uploadCode}`;
         }
 
         function copyCode(btn) {
@@ -867,6 +871,12 @@ print(data)`;
                 document.getElementById('testResult').innerHTML = `<div class="error">生成失败: ${data.error}</div>`;
             }
         }
+
+        // 动态设置 API 端点地址
+        const _baseUrl = window.location.origin;
+        document.getElementById('endpointGemini').value = _baseUrl + '/v1beta/models/{model}:generateContent';
+        document.getElementById('endpointOpenai').value = _baseUrl + '/v1/chat/completions';
+        document.getElementById('endpointGenerate').value = _baseUrl + '/generate';
 
         loadChannels();
         updateModelSelects();
