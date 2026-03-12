@@ -81,7 +81,6 @@
                 <div class="form-group">
                     <label>模型</label>
                     <select id="model">
-                        <option value="gemini-2.5-flash-image-preview">gemini-2.5-flash-image-preview</option>
                         <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview</option>
                     </select>
                 </div>
@@ -148,7 +147,7 @@
                 <h2>添加模型</h2>
                 <div class="form-group">
                     <label>模型名称</label>
-                    <input type="text" id="newModelName" placeholder="例如：gemini-2.5-flash-image-preview">
+                    <input type="text" id="newModelName" placeholder="例如：gemini-3-pro-image-preview">
                 </div>
                 <button class="btn btn-primary" onclick="addModel()">添加模型</button>
                 <div id="addModelResult"></div>
@@ -236,7 +235,7 @@ with open("image.png", "rb") as f:
 
 # Gemini格式
 response = requests.post(
-    "https://vertex.claudexai.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent",
+    "https://vertex.claudexai.com/v1beta/models/gemini-3-pro-image-preview:generateContent",
     headers={"Authorization": "Bearer YOUR_API_KEY"},
     json={
         "contents": [{
@@ -356,7 +355,6 @@ response = requests.post(
             <div class="form-group">
                 <label>模型</label>
                 <select id="editModel">
-                    <option value="gemini-2.5-flash-image-preview">gemini-2.5-flash-image-preview</option>
                     <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview</option>
                 </select>
             </div>

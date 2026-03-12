@@ -59,7 +59,7 @@ class ChannelConfig(BaseModel):
     api_key: Optional[str] = None
     project_id: Optional[str] = None
     location: str = "global"
-    model: str = "gemini-2.5-flash-image-preview"
+    model: str = "gemini-3-pro-image-preview"
     enabled: bool = True
     priority: int = 10
     timeout: int = 300
@@ -101,7 +101,6 @@ def load_config() -> Dict[str, Any]:
         # 确保有默认模型列表
         if "models" not in config:
             config["models"] = [
-                "gemini-2.5-flash-image-preview",
                 "gemini-3-pro-image-preview"
             ]
             save_config(config)
@@ -110,7 +109,6 @@ def load_config() -> Dict[str, Any]:
         default = {
             "channels": [],
             "models": [
-                "gemini-2.5-flash-image-preview",
                 "gemini-3-pro-image-preview"
             ]
         }
@@ -249,7 +247,7 @@ def call_gemini_api(channel: Dict, prompt: str, aspect_ratio: Optional[str] = No
 
     try:
         client = create_gemini_client(channel)
-        model = request_model or channel.get('model', 'gemini-2.5-flash-image-preview')
+        model = request_model or channel.get('model', 'gemini-3-pro-image-preview')
 
         # 构建内容
         contents = [prompt]
