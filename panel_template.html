@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Vertex AI Gemini 渠道管理</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; display: flex; height: 100vh; }
+        .sidebar { width: 200px; background: #2c3e50; color: white; padding: 20px 0; }
+        .sidebar h2 { padding: 0 20px; margin-bottom: 20px; font-size: 18px; }
+        .menu-item { padding: 12px 20px; cursor: pointer; transition: background 0.2s; }
+        .menu-item:hover { background: #34495e; }
+        .menu-item.active { background: #3498db; }
+        .main { flex: 1; overflow-y: auto; padding: 20px; }
+        .view { display: none; }
+        .view.active { display: block; }
+        h1 { color: #333; margin-bottom: 20px; }
+        .section { background: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-right: 8px; }
+        .btn-primary { background: #4285f4; color: white; }
+        .btn-success { background: #34a853; color: white; }
+        .btn-danger { background: #ea4335; color: white; }
+        .btn:hover { opacity: 0.9; }
+        input, select { padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; width: 100%; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 500; color: #555; }
+        .channel-item { padding: 15px; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 10px; }
+        .channel-header { display: flex; justify-content: space-between; align-items: center; }
+        .channel-name { font-size: 16px; font-weight: 600; }
+        .channel-status { padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 8px; }
+        .status-enabled { background: #e8f5e9; color: #2e7d32; }
+        .status-disabled { background: #ffebee; color: #c62828; }
+        .result-image { max-width: 100%; border-radius: 4px; margin-top: 10px; }
+        .error { color: #ea4335; margin-top: 10px; }
+        .success { color: #34a853; margin-top: 10px; }
+        .log-container { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; max-height: 600px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; position: relative; }
+        .copy-btn { position: absolute; top: 8px; right: 8px; background: #4285f4; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; opacity: 0.8; }
+        .copy-btn:hover { opacity: 1; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+        .modal.active { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-close { cursor: pointer; font-size: 24px; color: #666; }
+        .error-row { cursor: pointer; }
+        .error-row:hover { background: #f5f5f5; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h2>📊 控制面板</h2>
+        <div class="menu-item active" onclick="switchView('channels')">🔧 渠道管理</div>
+        <div class="menu-item" onclick="switchView('models')">🎯 模型管理</div>
+        <div class="menu-item" onclick="switchView('api')">🔑 API 接口</div>
+        <div class="menu-item" onclick="switchView('requests')">📊 请求记录</div>
+        <div class="menu-item" onclick="switchView('logs')">📋 日志查看</div>
+    </div>
+
+    <div class="main">
+        <!-- 渠道管理视图 -->
+        <div id="channelsView" class="view active">
+            <h1>🚀 Vertex AI Gemini 渠道管理</h1>
+
+            <div class="section">
+                <h2>添加渠道</h2>
+                <div class="form-group">
+                    <label>渠道名称</label>
+                    <input type="text" id="channelName" placeholder="例如：Vertex AI 主账号">
+                </div>
+                <div class="form-group">
+                    <label>API Key（快速模式）</label>
+                    <input type="text" id="apiKey" placeholder="留空则使用 Project ID 模式">
+                </div>
+                <div class="form-group">
+                    <label>Project ID（标准模式）</label>
+                    <input type="text" id="projectId" placeholder="GCP 项目 ID">
+                </div>
+                <div class="form-group">
+                    <label>Location</label>
+                    <input type="text" id="location" value="global" placeholder="global 或 us-central1">
+                </div>
+                <div class="form-group">
+                    <label>模型</label>
+                    <select id="model">
+                        <option value="gemini-2.5-flash-image-preview">gemini-2.5-flash-image-preview</option>
+                        <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>超时时间（秒）</label>
+                    <input type="number" id="timeout" value="300">
+                </div>
+                <button class="btn btn-primary" onclick="addChannel()">添加渠道</button>
+                <div id="addResult"></div>
+            </div>
+
+            <div class="section">
+                <h2>渠道列表</h2>
+                <div id="channelList"></div>
+            </div>
+
+            <div class="section">
+                <h2>测试渠道</h2>
+                <div class="form-group">
+                    <label>选择渠道</label>
+                    <select id="testChannelId"></select>
+                </div>
+                <div class="form-group">
+                    <label>提示词</label>
+                    <input type="text" id="testPrompt" value="一只可爱的猫咪">
+                </div>
+                <div class="form-group">
+                    <label>上传图片（可选）</label>
+                    <input type="file" id="testImage" accept="image/*">
+                </div>
+                <div class="form-group">
+                    <label>宽高比</label>
+                    <select id="testRatio">
+                        <option value="">默认尺寸/自动适配</option>
+                        <option value="1:1">1:1 正方形 (1024×1024)</option>
+                        <option value="2:3">2:3 竖屏照片 (896×1344)</option>
+                        <option value="3:2">3:2 横屏照片 (1344×896)</option>
+                        <option value="3:4">3:4 竖屏标准 (864×1184)</option>
+                        <option value="4:3">4:3 横屏标准 (1184×864)</option>
+                        <option value="4:5">4:5 社交媒体竖屏 (960×1216)</option>
+                        <option value="5:4">5:4 社交媒体横屏 (1216×960)</option>
+                        <option value="9:16">9:16 竖屏手机 (768×1344)</option>
+                        <option value="16:9">16:9 横屏宽屏 (1344×768)</option>
+                        <option value="21:9">21:9 超宽屏 (1536×640)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>分辨率</label>
+                    <select id="testSize">
+                        <option value="1K">1K</option>
+                        <option value="2K">2K</option>
+                        <option value="4K">4K</option>
+                    </select>
+                </div>
+                <button class="btn btn-success" onclick="testChannel()">测试生成</button>
+                <div id="testResult"></div>
+            </div>
+        </div>
+
+        <!-- 模型管理视图 -->
+        <div id="modelsView" class="view">
+            <h1>🎯 模型管理</h1>
+            <div class="section">
+                <h2>添加模型</h2>
+                <div class="form-group">
+                    <label>模型名称</label>
+                    <input type="text" id="newModelName" placeholder="例如：gemini-2.5-flash-image-preview">
+                </div>
+                <button class="btn btn-primary" onclick="addModel()">添加模型</button>
+                <div id="addModelResult"></div>
+            </div>
+
+            <div class="section">
+                <h2>模型列表</h2>
+                <div id="modelList"></div>
+            </div>
+        </div>
+
+        <!-- API 接口视图 -->
+        <div id="apiView" class="view">
+            <h1>🔑 API 接口</h1>
+
+            <div class="section">
+                <h2>API Keys 管理</h2>
+                <div class="form-group">
+                    <label>API Key 名称</label>
+                    <input type="text" id="apiKeyName" placeholder="输入 API Key 名称">
+                </div>
+                <div class="form-group">
+                    <label>模式</label>
+                    <select id="apiKeyMode" onchange="toggleChannelSelect()">
+                        <option value="random">随机模式（从所有渠道随机选择）</option>
+                        <option value="single">独立模式（绑定单个渠道）</option>
+                    </select>
+                </div>
+                <div class="form-group" id="channelSelectGroup" style="display: none;">
+                    <label>选择渠道</label>
+                    <select id="apiKeyChannel"></select>
+                </div>
+                <button class="btn btn-primary" onclick="createApiKey()">创建 API Key</button>
+                <div id="createKeyResult"></div>
+
+                <h3 style="margin-top: 20px;">API Keys 列表</h3>
+                <div id="apiKeyList"></div>
+            </div>
+
+            <div class="section">
+                <h2>API 端点</h2>
+                <div class="form-group">
+                    <label>Gemini 格式</label>
+                    <input type="text" value="https://vertex.claudexai.com/v1beta/models/{model}:generateContent" readonly style="background: #f5f5f5;">
+                </div>
+                <div class="form-group">
+                    <label>OpenAI 格式</label>
+                    <input type="text" value="https://vertex.claudexai.com/v1/chat/completions" readonly style="background: #f5f5f5;">
+                </div>
+                <div class="form-group">
+                    <label>简化格式（兼容旧版）</label>
+                    <input type="text" value="https://vertex.claudexai.com/generate" readonly style="background: #f5f5f5;">
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>使用示例</h2>
+                <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>选择模型</label>
+                        <select id="exampleModel" onchange="updateExamples()"></select>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>选择 API Key</label>
+                        <select id="exampleApiKey" onchange="updateExamples()"></select>
+                    </div>
+                </div>
+
+                <h3 style="margin-bottom: 10px;">方式1: Gemini 格式</h3>
+                <div class="log-container" id="geminiExample" style="max-height: 200px;"></div>
+
+                <h3 style="margin: 20px 0 10px 0;">方式2: OpenAI 格式</h3>
+                <div class="log-container" id="openaiExample" style="max-height: 200px;"></div>
+
+                <h3 style="margin: 20px 0 10px 0;">Python 示例 (Gemini格式)</h3>
+                <div class="log-container" id="pythonExample" style="max-height: 200px;"></div>
+
+                <h3 style="margin: 20px 0 10px 0;">图片上传示例 (Python)</h3>
+                <div class="log-container" style="max-height: 200px;"><button class="copy-btn" onclick="copyCode(this)">复制</button>import requests
+import base64
+
+# 读取图片并转换为base64
+with open("image.png", "rb") as f:
+    image_base64 = base64.b64encode(f.read()).decode()
+
+# Gemini格式
+response = requests.post(
+    "https://vertex.claudexai.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent",
+    headers={"Authorization": "Bearer YOUR_API_KEY"},
+    json={
+        "contents": [{
+            "parts": [
+                {"text": "根据这张图片生成一个变体"},
+                {"inlineData": {"mimeType": "image/png", "data": image_base64}}
+            ]
+        }]
+    }
+)</div>
+            </div>
+
+            <div class="section">
+                <h2>请求参数</h2>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #f5f5f5; text-align: left;">
+                            <th style="padding: 10px; border: 1px solid #ddd;">参数</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">类型</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">必填</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">说明</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Authorization</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">header</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">是</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Bearer YOUR_API_KEY</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">prompt</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">string</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">是</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">图片生成提示词</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">image_size</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">string</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">否</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">分辨率：1K / 2K / 4K（默认1K）</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">aspect_ratio</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">string</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">否</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">
+                                宽高比（不传则自动适配）：<br>
+                                • 1:1 正方形 (1024×1024)<br>
+                                • 2:3 竖屏照片 (896×1344)<br>
+                                • 3:2 横屏照片 (1344×896)<br>
+                                • 3:4 竖屏标准 (864×1184)<br>
+                                • 4:3 横屏标准 (1184×864)<br>
+                                • 4:5 社交媒体竖屏 (960×1216)<br>
+                                • 5:4 社交媒体横屏 (1216×960)<br>
+                                • 9:16 竖屏手机 (768×1344)<br>
+                                • 16:9 横屏宽屏 (1344×768)<br>
+                                • 21:9 超宽屏 (1536×640)
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd;">model</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">string</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">否</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">指定模型名称</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 请求记录视图 -->
+        <div id="requestsView" class="view">
+            <h1>📊 请求记录</h1>
+            <div class="section">
+                <button class="btn btn-primary" onclick="refreshRequests()">刷新记录</button>
+                <div id="requestList" style="margin-top: 20px;"></div>
+            </div>
+        </div>
+
+        <!-- 日志查看视图 -->
+        <div id="logsView" class="view">
+            <h1>📋 系统日志</h1>
+            <div class="section">
+                <button class="btn btn-primary" onclick="refreshLogs()">刷新日志</button>
+                <button class="btn btn-success" onclick="autoRefresh()">自动刷新</button>
+                <button class="btn btn-danger" onclick="stopAutoRefresh()">停止刷新</button>
+                <div class="log-container" id="logContent">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑渠道弹窗 -->
+    <div id="editModal" class="modal" onclick="if(event.target === this) closeEditModal()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>编辑渠道</h2>
+                <span class="modal-close" onclick="closeEditModal()">&times;</span>
+            </div>
+            <input type="hidden" id="editChannelId">
+            <div class="form-group">
+                <label>渠道名称</label>
+                <input type="text" id="editChannelName">
+            </div>
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="text" id="editApiKey">
+            </div>
+            <div class="form-group">
+                <label>Project ID</label>
+                <input type="text" id="editProjectId">
+            </div>
+            <div class="form-group">
+                <label>Location</label>
+                <input type="text" id="editLocation">
+            </div>
+            <div class="form-group">
+                <label>模型</label>
+                <select id="editModel">
+                    <option value="gemini-2.5-flash-image-preview">gemini-2.5-flash-image-preview</option>
+                    <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>超时时间（秒）</label>
+                <input type="number" id="editTimeout">
+            </div>
+            <div class="form-group">
+                <label>优先级</label>
+                <input type="number" id="editPriority">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="editEnabled"> 启用渠道
+                </label>
+            </div>
+            <button class="btn btn-primary" onclick="saveEdit()">保存</button>
+            <button class="btn" onclick="closeEditModal()">取消</button>
+        </div>
+    </div>
+
+    <!-- 错误详情弹窗 -->
+    <div id="errorModal" class="modal" onclick="if(event.target === this) closeErrorModal()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>错误详情</h2>
+                <span class="modal-close" onclick="closeErrorModal()">&times;</span>
+            </div>
+            <div id="errorDetails" style="white-space: pre-wrap; word-wrap: break-word; background: #f5f5f5; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 12px;"></div>
+        </div>
+    </div>
+
+    <script>
+        let autoRefreshInterval = null;
+
+        function switchView(view) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('active'));
+
+            if (view === 'channels') {
+                document.getElementById('channelsView').classList.add('active');
+                document.querySelectorAll('.menu-item')[0].classList.add('active');
+            } else if (view === 'models') {
+                document.getElementById('modelsView').classList.add('active');
+                document.querySelectorAll('.menu-item')[1].classList.add('active');
+                loadModels();
+            } else if (view === 'api') {
+                document.getElementById('apiView').classList.add('active');
+                document.querySelectorAll('.menu-item')[2].classList.add('active');
+                loadApiKeys();
+                loadChannelsForApiKey();
+                loadExampleSelects();
+            } else if (view === 'requests') {
+                document.getElementById('requestsView').classList.add('active');
+                document.querySelectorAll('.menu-item')[3].classList.add('active');
+                refreshRequests();
+            } else if (view === 'logs') {
+                document.getElementById('logsView').classList.add('active');
+                document.querySelectorAll('.menu-item')[4].classList.add('active');
+                refreshLogs();
+            }
+        }
+
+        function copyBaseUrl() {
+            const input = document.getElementById('baseUrl');
+            input.select();
+            document.execCommand('copy');
+            alert('已复制到剪贴板');
+        }
+
+        async function loadApiKeys() {
+            const res = await fetch('/api/apikeys');
+            const data = await res.json();
+            const keys = data.api_keys || [];
+
+            if (keys.length === 0) {
+                document.getElementById('apiKeyList').innerHTML = '<p>暂无 API Key</p>';
+                return;
+            }
+
+            // 获取渠道列表用于显示渠道名称
+            const channelsRes = await fetch('/api/channels');
+            const channelsData = await channelsRes.json();
+            const channels = channelsData.channels || [];
+
+            const html = keys.map(key => {
+                let modeText = key.mode === 'single' ? '独立模式' : '随机模式';
+                let channelText = '';
+                if (key.mode === 'single' && key.channel_id) {
+                    const channel = channels.find(ch => ch.id === key.channel_id);
+                    channelText = ` - 渠道: ${channel ? channel.name : '未知'}`;
+                }
+
+                return `
+                <div style="padding: 15px; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-weight: 600; margin-bottom: 5px;">${key.name}</div>
+                            <div style="font-family: monospace; font-size: 12px; color: #666;">${key.key}</div>
+                            <div style="font-size: 12px; color: #999; margin-top: 5px;">
+                                ${modeText}${channelText} | 创建时间: ${key.created_at}
+                            </div>
+                        </div>
+                        <button class="btn btn-danger" onclick="deleteApiKey('${key.id}')">删除</button>
+                    </div>
+                </div>
+            `}).join('');
+
+            document.getElementById('apiKeyList').innerHTML = html;
+        }
+
+        function toggleChannelSelect() {
+            const mode = document.getElementById('apiKeyMode').value;
+            const channelGroup = document.getElementById('channelSelectGroup');
+            channelGroup.style.display = mode === 'single' ? 'block' : 'none';
+        }
+
+        async function loadChannelsForApiKey() {
+            const res = await fetch('/api/channels');
+            const data = await res.json();
+            const channels = data.channels || [];
+            const html = channels.map(ch => `<option value="${ch.id}">${ch.name}</option>`).join('');
+            document.getElementById('apiKeyChannel').innerHTML = html;
+        }
+
+        async function createApiKey() {
+            const name = document.getElementById('apiKeyName').value.trim();
+            const mode = document.getElementById('apiKeyMode').value;
+            const channel_id = mode === 'single' ? document.getElementById('apiKeyChannel').value : null;
+
+            if (!name) {
+                alert('请输入 API Key 名称');
+                return;
+            }
+
+            if (mode === 'single' && !channel_id) {
+                alert('请选择渠道');
+                return;
+            }
+
+            const res = await fetch('/api/apikeys', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, mode, channel_id})
+            });
+
+            if (res.ok) {
+                document.getElementById('createKeyResult').innerHTML = '<div class="success">创建成功</div>';
+                document.getElementById('apiKeyName').value = '';
+                loadApiKeys();
+            } else {
+                document.getElementById('createKeyResult').innerHTML = '<div class="error">创建失败</div>';
+            }
+        }
+
+        async function deleteApiKey(keyId) {
+            if (!confirm('确定删除此 API Key？')) return;
+            await fetch(`/api/apikeys/${keyId}`, {method: 'DELETE'});
+            loadApiKeys();
+        }
+
+        async function loadExampleSelects() {
+            // 加载模型列表
+            const modelsRes = await fetch('/api/models');
+            const modelsData = await modelsRes.json();
+            const models = modelsData.models || [];
+            const modelOptions = models.map(m => `<option value="${m}">${m}</option>`).join('');
+            document.getElementById('exampleModel').innerHTML = modelOptions;
+
+            // 加载API key列表
+            const keysRes = await fetch('/api/apikeys');
+            const keysData = await keysRes.json();
+            const keys = keysData.api_keys || [];
+            const keyOptions = keys.map(k => `<option value="${k.key}">${k.name}</option>`).join('');
+            document.getElementById('exampleApiKey').innerHTML = keyOptions || '<option value="">暂无API Key</option>';
+
+            updateExamples();
+        }
+
+        function updateExamples() {
+            const model = document.getElementById('exampleModel').value;
+            const apiKey = document.getElementById('exampleApiKey').value;
+
+            const geminiCode = `curl -X POST https://vertex.claudexai.com/v1beta/models/${model}:generateContent \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -d '{
+    "contents": [{"parts": [{"text": "一只可爱的猫咪"}]}],
+    "generationConfig": {
+      "aspectRatio": "1:1",
+      "imageSize": "1K"
+    }
+  }'`;
+
+            const openaiCode = `curl -X POST https://vertex.claudexai.com/v1/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -d '{
+    "model": "${model}",
+    "messages": [{"role": "user", "content": "一只可爱的猫咪"}]
+  }'`;
+
+            const pythonCode = `import requests
+
+response = requests.post(
+    "https://vertex.claudexai.com/v1beta/models/${model}:generateContent",
+    headers={"Authorization": "Bearer ${apiKey}"},
+    json={
+        "contents": [{"parts": [{"text": "一只可爱的猫咪"}]}],
+        "generationConfig": {"aspectRatio": "1:1", "imageSize": "1K"}
+    }
+)
+data = response.json()
+print(data)`;
+
+            document.getElementById('geminiExample').innerHTML = `<button class="copy-btn" onclick="copyCode(this)">复制</button>${geminiCode}`;
+            document.getElementById('openaiExample').innerHTML = `<button class="copy-btn" onclick="copyCode(this)">复制</button>${openaiCode}`;
+            document.getElementById('pythonExample').innerHTML = `<button class="copy-btn" onclick="copyCode(this)">复制</button>${pythonCode}`;
+        }
+
+        function copyCode(btn) {
+            const code = btn.parentElement.textContent.replace('复制', '').trim();
+            navigator.clipboard.writeText(code).then(() => {
+                const originalText = btn.textContent;
+                btn.textContent = '已复制';
+                setTimeout(() => btn.textContent = originalText, 2000);
+            });
+        }
+
+        async function refreshLogs() {
+            const res = await fetch('/api/logs');
+            const data = await res.json();
+            document.getElementById('logContent').textContent = data.logs;
+        }
+
+        async function loadModels() {
+            const res = await fetch('/api/models');
+            const data = await res.json();
+            const models = data.models || [];
+
+            const html = models.map(model => `
+                <div style="padding: 10px; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                    <span>${model}</span>
+                    <button class="btn btn-danger" onclick="deleteModel('${model}')">删除</button>
+                </div>
+            `).join('');
+
+            document.getElementById('modelList').innerHTML = html || '<p>暂无模型</p>';
+        }
+
+        async function addModel() {
+            const modelName = document.getElementById('newModelName').value.trim();
+            if (!modelName) {
+                alert('请输入模型名称');
+                return;
+            }
+
+            const res = await fetch(`/api/models?model_name=${encodeURIComponent(modelName)}`, {
+                method: 'POST'
+            });
+
+            if (res.ok) {
+                document.getElementById('addModelResult').innerHTML = '<div class="success">添加成功</div>';
+                document.getElementById('newModelName').value = '';
+                loadModels();
+                updateModelSelects();
+            } else {
+                document.getElementById('addModelResult').innerHTML = '<div class="error">添加失败</div>';
+            }
+        }
+
+        async function deleteModel(modelName) {
+            if (!confirm(`确定删除模型 ${modelName}？`)) return;
+            await fetch(`/api/models/${encodeURIComponent(modelName)}`, {method: 'DELETE'});
+            loadModels();
+            updateModelSelects();
+        }
+
+        async function updateModelSelects() {
+            const res = await fetch('/api/models');
+            const data = await res.json();
+            const models = data.models || [];
+
+            const optionsHtml = models.map(m => `<option value="${m}">${m}</option>`).join('');
+            document.getElementById('model').innerHTML = optionsHtml;
+            document.getElementById('editModel').innerHTML = optionsHtml;
+        }
+
+        async function refreshRequests() {
+            const res = await fetch('/api/requests');
+            const data = await res.json();
+            const requests = data.requests || [];
+
+            if (requests.length === 0) {
+                document.getElementById('requestList').innerHTML = '<p>暂无请求记录</p>';
+                return;
+            }
+
+            const html = `
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #f5f5f5; text-align: left;">
+                            <th style="padding: 10px; border: 1px solid #ddd;">渠道</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">模型</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">状态</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">清晰度</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">宽高比</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">耗时(s)</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">提示词</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">时间</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${requests.map((req, index) => `
+                            <tr class="${req.status === '失败' && req.error ? 'error-row' : ''}" ${req.status === '失败' && req.error ? `ondblclick="showErrorByIndex(${index})"` : ''}>
+                                <td style="padding: 8px; border: 1px solid #ddd;">${req.channel}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${req.model}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">
+                                    <span style="padding: 4px 8px; border-radius: 4px; font-size: 12px; background: ${req.status === '成功' ? '#e8f5e9' : '#ffebee'}; color: ${req.status === '成功' ? '#2e7d32' : '#c62828'};">
+                                        ${req.status}
+                                    </span>
+                                </td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">${req.image_size}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">${req.aspect_ratio}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">${req.elapsed}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${req.prompt}">${req.prompt}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px; white-space: nowrap;">${req.time}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            document.getElementById('requestList').innerHTML = html;
+
+            // 保存请求数据供后续使用
+            window.requestsData = requests;
+        }
+
+        function autoRefresh() {
+            if (autoRefreshInterval) return;
+            autoRefreshInterval = setInterval(refreshLogs, 3000);
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+        }
+
+        async function loadChannels() {
+            const res = await fetch('/api/channels');
+            const data = await res.json();
+            const channels = data.channels || [];
+
+            const listHtml = channels.map(ch => `
+                <div class="channel-item">
+                    <div class="channel-header">
+                        <div>
+                            <div class="channel-name">${ch.name}</div>
+                            <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                                模型: ${ch.model} | ${ch.api_key ? 'API Key 模式' : 'Project ID 模式'} | 优先级: ${ch.priority}
+                            </div>
+                        </div>
+                        <div>
+                            <span class="channel-status ${ch.enabled ? 'status-enabled' : 'status-disabled'}">
+                                ${ch.enabled ? '已启用' : '已禁用'}
+                            </span>
+                            <button class="btn btn-primary" onclick='editChannel(${JSON.stringify(ch)})'>编辑</button>
+                            <button class="btn btn-danger" onclick="deleteChannel('${ch.id}')">删除</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            document.getElementById('channelList').innerHTML = listHtml || '<p>暂无渠道</p>';
+
+            const selectHtml = channels.map(ch => `<option value="${ch.id}">${ch.name}</option>`).join('');
+            document.getElementById('testChannelId').innerHTML = selectHtml;
+        }
+
+        async function addChannel() {
+            const name = document.getElementById('channelName').value;
+            const api_key = document.getElementById('apiKey').value || null;
+            const project_id = document.getElementById('projectId').value || null;
+            const location = document.getElementById('location').value;
+            const model = document.getElementById('model').value;
+            const timeout = parseInt(document.getElementById('timeout').value);
+
+            if (!name) { alert('请输入渠道名称'); return; }
+            if (!api_key && !project_id) { alert('请至少提供 API Key 或 Project ID'); return; }
+
+            const res = await fetch('/api/channels', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, api_key, project_id, location, model, timeout, enabled: true, priority: 10})
+            });
+
+            if (res.ok) {
+                document.getElementById('addResult').innerHTML = '<div class="success">添加成功</div>';
+                document.getElementById('channelName').value = '';
+                document.getElementById('apiKey').value = '';
+                document.getElementById('projectId').value = '';
+                loadChannels();
+            } else {
+                document.getElementById('addResult').innerHTML = '<div class="error">添加失败</div>';
+            }
+        }
+
+        async function deleteChannel(id) {
+            if (!confirm('确定删除此渠道？')) return;
+            await fetch(`/api/channels/${id}`, {method: 'DELETE'});
+            loadChannels();
+        }
+
+        function editChannel(channel) {
+            document.getElementById('editChannelId').value = channel.id;
+            document.getElementById('editChannelName').value = channel.name;
+            document.getElementById('editApiKey').value = channel.api_key || '';
+            document.getElementById('editProjectId').value = channel.project_id || '';
+            document.getElementById('editLocation').value = channel.location;
+            document.getElementById('editModel').value = channel.model;
+            document.getElementById('editTimeout').value = channel.timeout;
+            document.getElementById('editPriority').value = channel.priority;
+            document.getElementById('editEnabled').checked = channel.enabled;
+            document.getElementById('editModal').classList.add('active');
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').classList.remove('active');
+        }
+
+        function showError(errorMsg) {
+            document.getElementById('errorDetails').textContent = errorMsg;
+            document.getElementById('errorModal').classList.add('active');
+        }
+
+        function showErrorByIndex(index) {
+            if (window.requestsData && window.requestsData[index]) {
+                const errorMsg = window.requestsData[index].error || '无错误信息';
+                document.getElementById('errorDetails').textContent = errorMsg;
+                document.getElementById('errorModal').classList.add('active');
+            }
+        }
+
+        function closeErrorModal() {
+            document.getElementById('errorModal').classList.remove('active');
+        }
+
+        async function saveEdit() {
+            const id = document.getElementById('editChannelId').value;
+            const name = document.getElementById('editChannelName').value;
+            const api_key = document.getElementById('editApiKey').value || null;
+            const project_id = document.getElementById('editProjectId').value || null;
+            const location = document.getElementById('editLocation').value;
+            const model = document.getElementById('editModel').value;
+            const timeout = parseInt(document.getElementById('editTimeout').value);
+            const priority = parseInt(document.getElementById('editPriority').value);
+            const enabled = document.getElementById('editEnabled').checked;
+
+            const res = await fetch(`/api/channels/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, api_key, project_id, location, model, timeout, enabled, priority})
+            });
+
+            if (res.ok) {
+                closeEditModal();
+                loadChannels();
+            } else {
+                alert('保存失败');
+            }
+        }
+
+        async function testChannel() {
+            const channel_id = document.getElementById('testChannelId').value;
+            const prompt = document.getElementById('testPrompt').value;
+            const aspect_ratio = document.getElementById('testRatio').value || null;
+            const image_size = document.getElementById('testSize').value;
+            const imageFile = document.getElementById('testImage').files[0];
+
+            if (!channel_id) { alert('请选择渠道'); return; }
+
+            document.getElementById('testResult').innerHTML = '<div>生成中...</div>';
+
+            let image_base64 = null;
+            if (imageFile) {
+                const reader = new FileReader();
+                image_base64 = await new Promise((resolve) => {
+                    reader.onload = (e) => resolve(e.target.result.split(',')[1]);
+                    reader.readAsDataURL(imageFile);
+                });
+            }
+
+            const res = await fetch('/api/test', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({channel_id, prompt, aspect_ratio, image_size, image: image_base64})
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                document.getElementById('testResult').innerHTML = `
+                    <div class="success">生成成功！耗时: ${data.elapsed.toFixed(2)}s</div>
+                    <div>尺寸: ${data.width}x${data.height}</div>
+                    <img src="data:image/png;base64,${data.image_base64}" class="result-image">
+                `;
+            } else {
+                document.getElementById('testResult').innerHTML = `<div class="error">生成失败: ${data.error}</div>`;
+            }
+        }
+
+        loadChannels();
+        updateModelSelects();
+    </script>
+</body>
+</html>
