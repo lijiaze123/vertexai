@@ -86,6 +86,8 @@ class OpenAIRequest(BaseModel):
     model: str
     messages: List[Dict]
     max_tokens: Optional[int] = None
+    aspect_ratio: Optional[str] = None
+    image_size: Optional[str] = None
 
 class ApiKeyCreate(BaseModel):
     name: str
@@ -596,8 +598,8 @@ async def gemini_generate(model: str, req: GeminiRequest, authorization: Optiona
     aspect_ratio = None
     image_size = "1K"
     if req.generationConfig:
-        aspect_ratio = req.generationConfig.get("aspectRatio")
-        image_size = req.generationConfig.get("imageSize", "1K")
+        aspect_ratio = req.generationConfig.get("aspectRatio") or req.generationConfig.get("aspect_ratio")
+        image_size = req.generationConfig.get("imageSize") or req.generationConfig.get("image_size") or "1K"
 
     # 转换为内部请求格式
     internal_req = GenerateRequest(
@@ -691,7 +693,9 @@ async def openai_generate(req: OpenAIRequest, authorization: Optional[str] = Hea
     # 转换为内部请求格式
     internal_req = GenerateRequest(
         prompt=prompt,
-        model=req.model
+        model=req.model,
+        aspect_ratio=req.aspect_ratio,
+        image_size=req.image_size or "1K"
     )
 
     # 调用生成逻辑
