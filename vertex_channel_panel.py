@@ -577,6 +577,11 @@ async def gemini_generate(model: str, req: GeminiRequest, authorization: Optiona
     if not key_info:
         raise HTTPException(status_code=401, detail="无效的 API Key")
 
+    # 记录原始请求，方便排查
+    logger.info(f"=== Gemini格式请求 ===")
+    logger.info(f"generationConfig: {req.generationConfig}")
+    logger.info(f"contents数量: {len(req.contents) if req.contents else 0}")
+
     # 提取 prompt 和图片
     prompt = ""
     images_base64 = []
@@ -594,12 +599,16 @@ async def gemini_generate(model: str, req: GeminiRequest, authorization: Optiona
             elif isinstance(content, str):
                 prompt = content
 
-    # 提取配置
+    # 提取配置（支持顶层和 imageConfig 嵌套两种格式）
     aspect_ratio = None
     image_size = "1K"
     if req.generationConfig:
-        aspect_ratio = req.generationConfig.get("aspectRatio") or req.generationConfig.get("aspect_ratio")
-        image_size = req.generationConfig.get("imageSize") or req.generationConfig.get("image_size") or "1K"
+        image_config = req.generationConfig.get("imageConfig") or req.generationConfig.get("image_config") or {}
+        # 优先从 imageConfig 中取，再从顶层取
+        aspect_ratio = (image_config.get("aspectRatio") or image_config.get("aspect_ratio")
+                        or req.generationConfig.get("aspectRatio") or req.generationConfig.get("aspect_ratio"))
+        image_size = (image_config.get("imageSize") or image_config.get("image_size")
+                      or req.generationConfig.get("imageSize") or req.generationConfig.get("image_size") or "1K")
 
     # 转换为内部请求格式
     internal_req = GenerateRequest(
@@ -670,6 +679,10 @@ async def openai_generate(req: OpenAIRequest, authorization: Optional[str] = Hea
     key_info = verify_api_key(api_key) if api_key else None
     if not key_info:
         raise HTTPException(status_code=401, detail="无效的 API Key")
+
+    # 记录原始请求，方便排查
+    logger.info(f"=== OpenAI格式请求 ===")
+    logger.info(f"model: {req.model}, aspect_ratio: {req.aspect_ratio}, image_size: {req.image_size}")
 
     # 提取 prompt 和图片（从最后一条用户消息）
     prompt = ""
