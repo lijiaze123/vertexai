@@ -69,14 +69,14 @@ class TestRequest(BaseModel):
     prompt: str = "一只可爱的猫咪"
     aspect_ratio: Optional[str] = None
     image_size: Optional[str] = "1K"
-    image: Optional[str] = None  # base64编码的图片
+    images: Optional[List[str]] = None  # base64编码的图片列表
 
 class GenerateRequest(BaseModel):
     prompt: str
     aspect_ratio: Optional[str] = None
     image_size: Optional[str] = "1K"
     model: Optional[str] = None
-    image: Optional[str] = None  # base64编码的图片
+    images: Optional[List[str]] = None  # base64编码的图片列表
 
 class GeminiRequest(BaseModel):
     contents: List[Any]
@@ -142,7 +142,8 @@ def verify_api_key(api_key: str) -> Optional[Dict]:
     return None
 
 def add_request_record(channel_name: str, model: str, prompt: str, aspect_ratio: str,
-                       image_size: str, success: bool, elapsed: float, error: str = None):
+                       image_size: str, success: bool, elapsed: float, error: str = None,
+                       image_count: int = 0, image_size_mb: float = 0, resolution: str = ""):
     """添加请求记录"""
     global request_history
     # 使用北京时间 (UTC+8)
@@ -155,6 +156,9 @@ def add_request_record(channel_name: str, model: str, prompt: str, aspect_ratio:
         "prompt": prompt[:100],
         "aspect_ratio": aspect_ratio or "默认",
         "image_size": image_size,
+        "image_count": image_count,
+        "image_size_mb": image_size_mb,
+        "resolution": resolution,
         "status": "成功" if success else "失败",
         "elapsed": round(elapsed, 2),
         "error": error
@@ -240,38 +244,66 @@ def _get_safety_block_reason(response: Any, candidate: Any = None) -> Optional[s
     return "; ".join(reasons) if reasons else None
 
 def call_gemini_api(channel: Dict, prompt: str, aspect_ratio: Optional[str] = None,
-                    image_size: Optional[str] = None, image_base64: Optional[str] = None,
+                    image_size: Optional[str] = None, images_base64: Optional[List[str]] = None,
                     request_model: Optional[str] = None) -> Dict[str, Any]:
     """调用 Gemini API 生成图片"""
+    logger.info(f"=== call_gemini_api 入口参数 ===")
+    logger.info(f"prompt: {prompt[:50]}")
+    logger.info(f"aspect_ratio: {aspect_ratio}")
+    logger.info(f"image_size: {image_size}")
+    logger.info(f"request_model: {request_model}")
     start_time = time.time()
 
     try:
         client = create_gemini_client(channel)
         model = request_model or channel.get('model', 'gemini-3-pro-image-preview')
 
-        # 构建内容
+        # 判断模型类型：仅 gemini-2.5 系列特殊处理
+        # gemini-2.5：不需要 response_modalities、不支持 image_size、输入最大 1024
+        # 其余所有模型：需要 response_modalities、支持 image_size、输入最大 2048
+        is_gemini25 = 'gemini-2.5' in model or 'gemini-2-5' in model
+        max_side = 1024 if is_gemini25 else 2048
+
+        # 构建内容：prompt 在前，图片在后
         contents = [prompt]
-        if image_base64:
-            # 将base64图片转换为PIL Image对象
-            image_data = base64.b64decode(image_base64)
-            image = Image.open(io.BytesIO(image_data))
-            contents = [image, prompt]
+        if images_base64:
+            for img_b64 in images_base64:
+                image_data = base64.b64decode(img_b64)
+                img = Image.open(io.BytesIO(image_data))
+                # 转换为 RGB
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                # 根据模型限制缩放
+                if img.width > max_side or img.height > max_side:
+                    img.thumbnail((max_side, max_side), Image.LANCZOS)
+                    logger.info(f"图片已缩放至 {img.width}x{img.height}")
+                contents.append(img)
 
         # 构建配置
-        config = None
-        if aspect_ratio or image_size:
-            from google.genai import types
-            image_config_params = {}
-            if aspect_ratio:
-                image_config_params['aspect_ratio'] = aspect_ratio
-            # gemini-3 系列模型支持 image_size 参数
-            if image_size and (model.startswith('gemini-3') or model.startswith('gemini-2')):
-                image_config_params['image_size'] = image_size
+        from google.genai import types
+        config_params = {}
+        image_config_params = {}
 
-            if image_config_params:
-                config = types.GenerateContentConfig(
-                    image_config=types.ImageConfig(**image_config_params)
-                )
+        # 非 gemini-2.5 需要指定 response_modalities
+        if not is_gemini25:
+            config_params['response_modalities'] = ['IMAGE', 'TEXT']
+
+        if aspect_ratio:
+            image_config_params['aspect_ratio'] = aspect_ratio
+        # image_size 非 gemini-2.5 才支持
+        if image_size and not is_gemini25:
+            image_config_params['image_size'] = image_size
+
+        if image_config_params:
+            config_params['image_config'] = types.ImageConfig(**image_config_params)
+
+        config = types.GenerateContentConfig(**config_params) if config_params else None
+        logger.info(f"API配置: model={model}, is_gemini25={is_gemini25}")
+        logger.info(f"response_modalities={config_params.get('response_modalities')}")
+        logger.info(f"image_config={config_params.get('image_config')}")
+        logger.info(f"contents类型: {[type(c).__name__ for c in contents]}")
+        logger.info(f"config对象: {config}")
+        logger.info(f"config_params完整内容: {config_params}")
 
         # 调用 API
         if config:
@@ -317,8 +349,9 @@ def call_gemini_api(channel: Dict, prompt: str, aspect_ratio: Optional[str] = No
         logger.info(f"候选项数量: {len(response.candidates)}, parts数量: {len(candidate.content.parts)}")
 
         for i, part in enumerate(candidate.content.parts):
-            logger.info(f"Part {i}: hasattr(inline_data)={hasattr(part, 'inline_data')}")
-            logger.info(f"Part {i}: part内容={part}")
+            # 跳过 thought parts（它们包含的是预览图，不是最终的高分辨率图）
+            if hasattr(part, 'thought') and part.thought:
+                continue
             if hasattr(part, 'inline_data') and part.inline_data is not None:
                 logger.info(f"Part {i}: inline_data 不为空")
                 image_data = part.inline_data.data
@@ -326,14 +359,16 @@ def call_gemini_api(channel: Dict, prompt: str, aspect_ratio: Optional[str] = No
                     img = Image.open(io.BytesIO(image_data))
                     width, height = img.size
                     image_base64 = base64.b64encode(image_data).decode('utf-8')
+                    image_size_mb = round(len(image_data) / (1024 * 1024), 2)
 
                     elapsed = time.time() - start_time
-                    logger.info(f"成功生成图片: {width}x{height}, 耗时: {elapsed:.2f}s")
+                    logger.info(f"成功生成图片: {width}x{height}, 大小: {image_size_mb}MB, 耗时: {elapsed:.2f}s")
                     return {
                         'success': True,
                         'image_base64': image_base64,
                         'width': width,
                         'height': height,
+                        'image_size_mb': image_size_mb,
                         'elapsed': elapsed
                     }
                 else:
@@ -357,6 +392,43 @@ def call_gemini_api(channel: Dict, prompt: str, aspect_ratio: Optional[str] = No
     except Exception as e:
         elapsed = time.time() - start_time
         error_msg = str(e)
+        # 服务端断连时自动重试一次
+        if "Server disconnected" in error_msg or "disconnected" in error_msg.lower():
+            logger.warning(f"服务端断连，自动重试: {error_msg}")
+            try:
+                client = create_gemini_client(channel)
+                if config:
+                    response = client.models.generate_content(
+                        model=model, contents=contents, config=config
+                    )
+                else:
+                    response = client.models.generate_content(
+                        model=model, contents=contents
+                    )
+                if response.candidates:
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, 'content') and candidate.content and hasattr(candidate.content, 'parts') and candidate.content.parts:
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'inline_data') and part.inline_data is not None:
+                                image_data = part.inline_data.data
+                                if image_data:
+                                    img = Image.open(io.BytesIO(image_data))
+                                    width, height = img.size
+                                    result_b64 = base64.b64encode(image_data).decode('utf-8')
+                                    image_size_mb = round(len(image_data) / (1024 * 1024), 2)
+                                    elapsed = time.time() - start_time
+                                    logger.info(f"重试成功，生成图片: {width}x{height}, 大小: {image_size_mb}MB, 耗时: {elapsed:.2f}s")
+                                    return {
+                                        'success': True,
+                                        'image_base64': result_b64,
+                                        'width': width,
+                                        'height': height,
+                                        'image_size_mb': image_size_mb,
+                                        'elapsed': elapsed
+                                    }
+            except Exception as retry_e:
+                logger.error(f"重试也失败: {retry_e}")
+                error_msg = f"{error_msg} (重试失败: {retry_e})"
         logger.error(f"调用失败: {error_msg}")
         return {'success': False, 'error': error_msg, 'elapsed': elapsed}
 
@@ -404,13 +476,14 @@ async def delete_channel(channel_id: str):
 
 @app.post("/api/test")
 async def test_channel(req: TestRequest):
+    logger.info(f"收到测试请求: channel_id={req.channel_id}, prompt={req.prompt[:30]}, aspect_ratio={req.aspect_ratio}, image_size={req.image_size}")
     config = load_config()
     channel = next((ch for ch in config.get("channels", []) if ch.get("id") == req.channel_id), None)
     if not channel:
         raise HTTPException(status_code=404, detail="渠道不存在")
 
     # 在线程池中执行同步调用，避免阻塞
-    result = await asyncio.to_thread(call_gemini_api, channel, req.prompt, req.aspect_ratio, req.image_size, req.image)
+    result = await asyncio.to_thread(call_gemini_api, channel, req.prompt, req.aspect_ratio, req.image_size, req.images)
 
     # 记录请求
     add_request_record(
@@ -421,7 +494,10 @@ async def test_channel(req: TestRequest):
         image_size=req.image_size,
         success=result.get('success', False),
         elapsed=result.get('elapsed', 0),
-        error=result.get('error')
+        error=result.get('error'),
+        image_count=len(req.images) if req.images else 0,
+        image_size_mb=result.get('image_size_mb', 0),
+        resolution=f"{result['width']}x{result['height']}" if result.get('width') else ""
     )
 
     return result
@@ -457,7 +533,7 @@ async def generate_image(req: GenerateRequest, authorization: Optional[str] = He
     last_error = "所有渠道都失败了"
     for channel in channels:
         # 在线程池中执行同步调用，避免阻塞
-        result = await asyncio.to_thread(call_gemini_api, channel, req.prompt, req.aspect_ratio, req.image_size, req.image, req.model)
+        result = await asyncio.to_thread(call_gemini_api, channel, req.prompt, req.aspect_ratio, req.image_size, req.images, req.model)
 
         # 记录请求
         add_request_record(
@@ -468,7 +544,10 @@ async def generate_image(req: GenerateRequest, authorization: Optional[str] = He
             image_size=req.image_size,
             success=result.get('success', False),
             elapsed=result.get('elapsed', 0),
-            error=result.get('error')
+            error=result.get('error'),
+            image_count=len(req.images) if req.images else 0,
+            image_size_mb=result.get('image_size_mb', 0),
+        resolution=f"{result['width']}x{result['height']}" if result.get('width') else ""
         )
 
         if result.get('success'):
@@ -498,18 +577,20 @@ async def gemini_generate(model: str, req: GeminiRequest, authorization: Optiona
 
     # 提取 prompt 和图片
     prompt = ""
-    image_base64 = None
+    images_base64 = []
     if req.contents and len(req.contents) > 0:
-        content = req.contents[0]
-        if isinstance(content, dict) and "parts" in content:
-            for part in content["parts"]:
-                if isinstance(part, dict):
-                    if "text" in part:
-                        prompt = part["text"]
-                    elif "inlineData" in part:
-                        image_base64 = part["inlineData"].get("data")
-        elif isinstance(content, str):
-            prompt = content
+        for content in req.contents:
+            if isinstance(content, dict) and "parts" in content:
+                for part in content["parts"]:
+                    if isinstance(part, dict):
+                        if "text" in part:
+                            prompt = part["text"]
+                        elif "inlineData" in part:
+                            img_data = part["inlineData"].get("data")
+                            if img_data:
+                                images_base64.append(img_data)
+            elif isinstance(content, str):
+                prompt = content
 
     # 提取配置
     aspect_ratio = None
@@ -542,7 +623,7 @@ async def gemini_generate(model: str, req: GeminiRequest, authorization: Optiona
 
     last_error = "所有渠道都失败了"
     for channel in channels:
-        result = await asyncio.to_thread(call_gemini_api, channel, internal_req.prompt, internal_req.aspect_ratio, internal_req.image_size, image_base64, model)
+        result = await asyncio.to_thread(call_gemini_api, channel, internal_req.prompt, internal_req.aspect_ratio, internal_req.image_size, images_base64 or None, model)
 
         add_request_record(
             channel_name=channel.get('name'),
@@ -552,7 +633,10 @@ async def gemini_generate(model: str, req: GeminiRequest, authorization: Optiona
             image_size=internal_req.image_size,
             success=result.get('success', False),
             elapsed=result.get('elapsed', 0),
-            error=result.get('error')
+            error=result.get('error'),
+            image_count=len(images_base64),
+            image_size_mb=result.get('image_size_mb', 0),
+        resolution=f"{result['width']}x{result['height']}" if result.get('width') else ""
         )
 
         if result.get('success'):
@@ -587,7 +671,7 @@ async def openai_generate(req: OpenAIRequest, authorization: Optional[str] = Hea
 
     # 提取 prompt 和图片（从最后一条用户消息）
     prompt = ""
-    image_base64 = None
+    images_base64 = []
     for msg in reversed(req.messages):
         if msg.get("role") == "user":
             content = msg.get("content", "")
@@ -601,7 +685,7 @@ async def openai_generate(req: OpenAIRequest, authorization: Optional[str] = Hea
                         elif item.get("type") == "image_url":
                             image_url = item.get("image_url", {}).get("url", "")
                             if image_url.startswith("data:image"):
-                                image_base64 = image_url.split(",")[1]
+                                images_base64.append(image_url.split(",")[1])
             break
 
     # 转换为内部请求格式
@@ -626,7 +710,7 @@ async def openai_generate(req: OpenAIRequest, authorization: Optional[str] = Hea
 
     last_error = "所有渠道都失败了"
     for channel in channels:
-        result = await asyncio.to_thread(call_gemini_api, channel, internal_req.prompt, internal_req.aspect_ratio, internal_req.image_size, image_base64, req.model)
+        result = await asyncio.to_thread(call_gemini_api, channel, internal_req.prompt, internal_req.aspect_ratio, internal_req.image_size, images_base64 or None, req.model)
 
         add_request_record(
             channel_name=channel.get('name'),
@@ -636,7 +720,10 @@ async def openai_generate(req: OpenAIRequest, authorization: Optional[str] = Hea
             image_size=internal_req.image_size,
             success=result.get('success', False),
             elapsed=result.get('elapsed', 0),
-            error=result.get('error')
+            error=result.get('error'),
+            image_count=len(images_base64),
+            image_size_mb=result.get('image_size_mb', 0),
+        resolution=f"{result['width']}x{result['height']}" if result.get('width') else ""
         )
 
         if result.get('success'):
@@ -734,13 +821,17 @@ async def delete_api_key(key_id: str):
     save_config(config)
     return {"success": True}
 
-@app.get("/panel", response_class=HTMLResponse)
+@app.get("/panel")
 async def panel():
     # 异步读取文件，避免阻塞
     import aiofiles
     template_path = os.path.join(os.path.dirname(__file__), 'panel_template.html')
     async with aiofiles.open(template_path, 'r', encoding='utf-8') as f:
-        return await f.read()
+        content = await f.read()
+    return HTMLResponse(
+        content=content,
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
 
 if __name__ == "__main__":
     import uvicorn

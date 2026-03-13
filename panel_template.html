@@ -43,6 +43,14 @@
         .modal-close { cursor: pointer; font-size: 24px; color: #666; }
         .error-row { cursor: pointer; }
         .error-row:hover { background: #f5f5f5; }
+        .image-upload-zone { border: 2px dashed #ccc; border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; min-height: 80px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; }
+        .image-upload-zone:hover, .image-upload-zone.dragover { border-color: #4285f4; background: #e8f0fe; }
+        .image-upload-zone .placeholder { color: #999; font-size: 14px; }
+        .image-preview-item { position: relative; display: inline-block; width: 80px; height: 80px; border-radius: 4px; overflow: hidden; border: 1px solid #e0e0e0; }
+        .image-preview-item img { width: 100%; height: 100%; object-fit: cover; }
+        .image-preview-item .remove-btn { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; cursor: pointer; font-size: 12px; line-height: 20px; text-align: center; padding: 0; }
+        .image-preview-item .remove-btn:hover { background: #ea4335; }
+        .image-preview-item .image-index { position: absolute; bottom: 2px; left: 2px; background: rgba(0,0,0,0.6); color: white; font-size: 10px; padding: 1px 5px; border-radius: 3px; }
     </style>
 </head>
 <body>
@@ -105,11 +113,15 @@
                 </div>
                 <div class="form-group">
                     <label>提示词</label>
-                    <input type="text" id="testPrompt" value="一只可爱的猫咪">
+                    <input type="text" id="testPrompt" value="Draw a cute fluffy orange cat sitting on a windowsill with sunlight">
                 </div>
                 <div class="form-group">
-                    <label>上传图片（可选）</label>
-                    <input type="file" id="testImage" accept="image/*">
+                    <label>上传图片（可选，支持多张，可拖拽）</label>
+                    <input type="file" id="testImage" accept="image/*" multiple style="display:none;">
+                    <div class="image-upload-zone" id="imageUploadZone" onclick="document.getElementById('testImage').click()">
+                        <span class="placeholder" id="uploadPlaceholder">点击或拖拽图片到此处（支持多张）</span>
+                    </div>
+                    <div id="imagePreviewContainer" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:10px;"></div>
                 </div>
                 <div class="form-group">
                     <label>宽高比</label>
@@ -370,6 +382,64 @@
 
     <script>
         let autoRefreshInterval = null;
+        let uploadedFiles = []; // 存储用户已选择的图片文件
+
+        function addFiles(newFiles) {
+            for (const file of newFiles) {
+                if (file.type.startsWith('image/')) {
+                    uploadedFiles.push(file);
+                }
+            }
+            renderImagePreviews();
+        }
+
+        function removeFile(index) {
+            uploadedFiles.splice(index, 1);
+            renderImagePreviews();
+        }
+
+        function renderImagePreviews() {
+            const container = document.getElementById('imagePreviewContainer');
+            const placeholder = document.getElementById('uploadPlaceholder');
+            if (uploadedFiles.length === 0) {
+                container.innerHTML = '';
+                placeholder.style.display = '';
+                return;
+            }
+            placeholder.style.display = 'none';
+            container.innerHTML = uploadedFiles.map((file, i) => {
+                const url = URL.createObjectURL(file);
+                return `<div class="image-preview-item">
+                    <img src="${url}" title="${file.name}">
+                    <button class="remove-btn" onclick="event.stopPropagation(); removeFile(${i})">&times;</button>
+                    <span class="image-index">${i + 1}</span>
+                </div>`;
+            }).join('');
+        }
+
+        // 文件选择事件
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileInput = document.getElementById('testImage');
+            const zone = document.getElementById('imageUploadZone');
+
+            fileInput.addEventListener('change', function() {
+                addFiles(this.files);
+                this.value = ''; // 允许重复选择同名文件
+            });
+
+            zone.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                zone.classList.add('dragover');
+            });
+            zone.addEventListener('dragleave', function() {
+                zone.classList.remove('dragover');
+            });
+            zone.addEventListener('drop', function(e) {
+                e.preventDefault();
+                zone.classList.remove('dragover');
+                addFiles(e.dataTransfer.files);
+            });
+        });
 
         function switchView(view) {
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -555,19 +625,24 @@ print(data)`;
             const uploadCode = `import requests
 import base64
 
-# 读取图片并转换为base64
-with open("image.png", "rb") as f:
-    image_base64 = base64.b64encode(f.read()).decode()
+# 读取多张图片并转换为base64
+def load_image(path):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
 
-# Gemini格式
+image1_base64 = load_image("image1.png")
+image2_base64 = load_image("image2.png")
+
+# Gemini格式（多图）
 response = requests.post(
     "${baseUrl}/v1beta/models/gemini-3-pro-image-preview:generateContent",
     headers={"Authorization": "Bearer YOUR_API_KEY"},
     json={
         "contents": [{
             "parts": [
-                {"text": "根据这张图片生成一个变体"},
-                {"inlineData": {"mimeType": "image/png", "data": image_base64}}
+                {"text": "将图1的天空替换为图2中的蓝色天空"},
+                {"inlineData": {"mimeType": "image/png", "data": image1_base64}},
+                {"inlineData": {"mimeType": "image/png", "data": image2_base64}}
             ]
         }]
     }
@@ -664,9 +739,12 @@ response = requests.post(
                             <th style="padding: 10px; border: 1px solid #ddd;">渠道</th>
                             <th style="padding: 10px; border: 1px solid #ddd;">模型</th>
                             <th style="padding: 10px; border: 1px solid #ddd;">状态</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">图片</th>
                             <th style="padding: 10px; border: 1px solid #ddd;">清晰度</th>
                             <th style="padding: 10px; border: 1px solid #ddd;">宽高比</th>
                             <th style="padding: 10px; border: 1px solid #ddd;">耗时(s)</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">生成大小</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">分辨率</th>
                             <th style="padding: 10px; border: 1px solid #ddd;">提示词</th>
                             <th style="padding: 10px; border: 1px solid #ddd;">时间</th>
                         </tr>
@@ -681,9 +759,12 @@ response = requests.post(
                                         ${req.status}
                                     </span>
                                 </td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">${req.image_count > 0 ? req.image_count : '-'}</td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">${req.image_size}</td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">${req.aspect_ratio}</td>
                                 <td style="padding: 8px; border: 1px solid #ddd;">${req.elapsed}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">${req.image_size_mb > 0 ? req.image_size_mb + 'MB' : '-'}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">${req.resolution || '-'}</td>
                                 <td style="padding: 8px; border: 1px solid #ddd; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${req.prompt}">${req.prompt}</td>
                                 <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px; white-space: nowrap;">${req.time}</td>
                             </tr>
@@ -833,42 +914,87 @@ response = requests.post(
             }
         }
 
+        // 前端压缩图片，最大边长1536px
+        function compressImage(file, maxSide = 1536) {
+            return new Promise((resolve) => {
+                const img = new window.Image();
+                img.onload = () => {
+                    let { width, height } = img;
+                    if (width <= maxSide && height <= maxSide) {
+                        // 不需要缩放，直接读原始base64
+                        const reader = new FileReader();
+                        reader.onload = (e) => resolve(e.target.result.split(',')[1]);
+                        reader.readAsDataURL(file);
+                        return;
+                    }
+                    const scale = maxSide / Math.max(width, height);
+                    width = Math.round(width * scale);
+                    height = Math.round(height * scale);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    resolve(dataUrl.split(',')[1]);
+                };
+                img.src = URL.createObjectURL(file);
+            });
+        }
+
         async function testChannel() {
             const channel_id = document.getElementById('testChannelId').value;
             const prompt = document.getElementById('testPrompt').value;
             const aspect_ratio = document.getElementById('testRatio').value || null;
             const image_size = document.getElementById('testSize').value;
-            const imageFile = document.getElementById('testImage').files[0];
 
             if (!channel_id) { alert('请选择渠道'); return; }
 
-            document.getElementById('testResult').innerHTML = '<div>生成中...</div>';
+            const startTime = Date.now();
+            const resultEl = document.getElementById('testResult');
+            resultEl.innerHTML = '<div>生成中... <span id="testTimer">0</span>s</div>';
+            const timer = setInterval(() => {
+                const el = document.getElementById('testTimer');
+                if (el) el.textContent = Math.round((Date.now() - startTime) / 1000);
+            }, 1000);
 
-            let image_base64 = null;
-            if (imageFile) {
-                const reader = new FileReader();
-                image_base64 = await new Promise((resolve) => {
-                    reader.onload = (e) => resolve(e.target.result.split(',')[1]);
-                    reader.readAsDataURL(imageFile);
+            try {
+                let images = null;
+                if (uploadedFiles.length > 0) {
+                    images = [];
+                    for (const file of uploadedFiles) {
+                        const base64 = await compressImage(file);
+                        images.push(base64);
+                    }
+                }
+
+                const res = await fetch('/api/test', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({channel_id, prompt, aspect_ratio, image_size, images})
                 });
-            }
 
-            const res = await fetch('/api/test', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({channel_id, prompt, aspect_ratio, image_size, image: image_base64})
-            });
+                const text = await res.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error('响应解析失败: ' + text.substring(0, 200));
+                }
 
-            const data = await res.json();
-
-            if (data.success) {
-                document.getElementById('testResult').innerHTML = `
-                    <div class="success">生成成功！耗时: ${data.elapsed.toFixed(2)}s</div>
-                    <div>尺寸: ${data.width}x${data.height}</div>
-                    <img src="data:image/png;base64,${data.image_base64}" class="result-image">
-                `;
-            } else {
-                document.getElementById('testResult').innerHTML = `<div class="error">生成失败: ${data.error}</div>`;
+                if (data.success) {
+                    resultEl.innerHTML = `
+                        <div class="success">生成成功！耗时: ${data.elapsed.toFixed(2)}s</div>
+                        <div>尺寸: ${data.width}x${data.height}</div>
+                        <img src="data:image/png;base64,${data.image_base64}" class="result-image">
+                    `;
+                } else {
+                    resultEl.innerHTML = `<div class="error">生成失败: ${data.error || data.detail || '未知错误'}</div>`;
+                }
+            } catch (e) {
+                resultEl.innerHTML = `<div class="error">请求异常: ${e.message}</div>`;
+            } finally {
+                clearInterval(timer);
             }
         }
 
